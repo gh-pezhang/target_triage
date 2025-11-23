@@ -42,15 +42,23 @@ suppressPackageStartupMessages({
 })
 
 ###############################################
-# 1. Load Input Data
+# 1. Prepare Input Data
+###############################################
+#
+# 1. generate drug_target_annotations.csv which is the “one-stop” table for target tractability and tools
+# it should contain:
+#     targets' core IDs, target class & biology, druggability/tractability, 
+###############################################
+# 2. Load Input Data
 ###############################################
 
 # User provides these CSV/TXT files
 guardant_file      <- "pathway_genes_baseline_methyl_nofilt_NRvR_2025Q3.txt"      # potential targets
-depmap_crispr_file        <- "/domino/datasets/local/cohort_comparisons/DepMap/25Q3/"        # DepMap CERES/Chronos
-depmap_rnai_file        <- "depmap_gene_effect.csv"        # DepMap DEMETER2
+depmap_crispr_file <- "/domino/datasets/local/cohort_comparisons/DepMap/25Q3/CRISPRGeneEffect.csv"      # DepMap CERES/Chronos
+depmap_rnai_file   <- "domino/datasets/local/cohort_comparisons/DepMap/D2_combined_gene_dep_scores.csv" # DepMap DEMETER2
 depmap_mutants_file<- "depmap_EGFR_mutant_lines.csv"  # List of EGFR-mutant cell lines
-tcga_prevalence    <- "tcga_luad_prevalence.csv"
+tcga_prevalence    <- "tcga_luad_prevalence.csv"      # query TCGA NSCLC samples to get the frequency of promoter or 
+                                                      # enhancer methylation events for each gene
 drug_target_file   <- "drug_target_annotations.csv"
 assay_availability <- "assay_annotations.csv"
 mouse_knockout     <- "mouse_KO_phenotypes.csv"

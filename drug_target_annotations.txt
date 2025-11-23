@@ -1,0 +1,246 @@
+What drug_target_annotations.csv should contain
+
+At minimum (left = column name; right = meaning / typical source):
+
+Core IDs
+
+gene – HGNC gene symbol (input list anchor)
+
+ensembl_id, uniprot_id – stable IDs (HGNC/Ensembl BioMart, UniProt)
+
+Target class & biology
+
+target_class – kinase, GPCR, enzyme, TF, scaffolding, etc. (UniProt/InterPro)
+
+subcellular_location – membrane, cytosol, nucleus, secreted (UniProt)
+
+reactome_paths – semicolon list of Reactome pathway IDs/names (Reactome)
+
+egfr_distance – shortest-path length to EGFR in STRING PPI (you compute once; smaller = closer)
+
+Druggability / tractability
+
+tractability_bucket – categorical (e.g., small-molecule tractable, antibody tractable, low tractability). (Open Targets / canSAR / internal rubric)
+
+pdb_structures_count – number of PDB entries for the protein (RCSB PDB)
+
+ligand_bound_structures_count – PDB entries with bound ligands (PDB)
+
+active_site_pocket_flag – pocket/ligandability evidence (DoGSite, fpocket, canSAR; or binary from literature)
+
+chembl_active_compounds – count of ChEMBL molecules with activity vs the target (ChEMBL)
+
+chembl_high_quality_assays – count of assays with reliable endpoints (ChEMBL)
+
+Tooling / probes
+
+has_selective_small_molecule – binary; whether a reasonably selective inhibitor exists (literature/ChEMBL)
+
+chemical_probe_quality – e.g., Chemical Probes Portal rating (high/med/low/none)
+
+antibody_available – binary/qualitative (commercial catalogs; BenchSci evidence)
+
+protac_available – binary (PROTAC-DB / literature)
+
+assay_kits_available – binary/score (ELISA/enzymatic kits, cell-based reporters)
+
+Competitive / translational
+
+num_active_clinical_programs – targets with drugs in Ph I+ (Open Targets/ClinicalTrials.gov)
+
+num_trials_any_phase – trial count (ClinicalTrials.gov)
+
+patent_density_5y – rough count of target-specific patents last 5 years (Lens/Google Patents)
+
+competition_intensity – your normalized score summarizing the 3 metrics above
+
+Aggregated scores used by the pipeline
+
+pathway_score – your 0–1 score for relevance to EGFR signaling / apoptosis / bypass tracks (from Reactome/KEGG membership + expert curation)
+
+egfr_distance_score – transform of egfr_distance (closer → higher)
+
+druggability_score – 0–1 aggregate from tractability, PDB/ligand data, ChEMBL counts
+
+tool_compound_score – 0–1 aggregate from selective inhibitor/probe, antibodies, PROTACs, assay kits
+
+(optional) notes – free text: key references, caveats
+
+In the R script I gave earlier, these columns feed s_BIO, s_DRUG, s_ASSAY, and s_COMP (and the egfr_distance_score helps s_BIO).
+
+How to generate it (practical workflow)
+
+Inputs: your ~20-gene list.
+
+Step 1 — ID mapping
+
+Map gene → ensembl_id, uniprot_id.
+
+Tools: Ensembl BioMart (web or R biomaRt), UniProt ID mapping.
+
+Step 2 — Pull per-source annotations (export simple CSVs)
+
+UniProt: function, target class, subcellular location.
+
+Reactome/KEGG: pathway memberships (download mapping tables; filter to EGFR pathway, MAPK, PI3K, apoptosis, EMT, DNA repair).
+
+STRING: compute shortest path to EGFR (download network, run a small script to compute shortest paths).
+
+PDB: count structures and ligand-bound structures for each UniProt ID.
+
+ChEMBL: count active compounds and high-quality assays mapped to the target.
+
+Open Targets / canSAR (if accessible): tractability buckets and clinical precedence.
+
+Chemical Probes Portal: probe availability/quality.
+
+PROTAC-DB: whether degraders exist.
+
+ClinicalTrials.gov: count trials and programs for drugs that list your gene as the primary target.
+
+Patents (optional): Lens or Google Patents counts (broad keyword “gene symbol” AND “inhibitor” etc., manual for 20 genes is feasible).
+
+Step 3 — Score construction (simple, auditable rules)
+
+pathway_score: e.g.,
+= 1.0 if member of core EGFR/RTK/MAPK/PI3K or apoptosis; 0.7 if in adjacent signaling; 0.4 other cancer-relevant; 0.0 none
+
+egfr_distance_score: e.g.,
+= 1 for distance 1; 0.8 for 2; 0.6 for 3; 0.3 for 4; 0 for ≥5
+
+druggability_score: weighted 0–1 from:
+
+tractability bucket (e.g., 0.9 for “SM tractable”, 0.7 for Ab-tractable only, 0.4 low),
+
+pdb_structures_count (percentile),
+
+ligand_bound_structures_count (percentile),
+
+chembl_active_compounds (percentile),
+
+active_site_pocket_flag (binary boost).
+
+tool_compound_score: weighted 0–1 from:
+
+has_selective_small_molecule (0/1),
+
+chemical_probe_quality (map High=1, Med=0.6, Low=0.3, None=0),
+
+antibody_available (0/0.3),
+
+protac_available (0/0.3),
+
+assay_kits_available (0/0.2).
+
+competition_intensity: normalize num_active_clinical_programs, num_trials_any_phase, patent_density_5y to 0–1 and average (or max), then (optionally) invert in the pipeline if “more competition = worse”.
+
+Step 4 — Merge into one CSV
+
+Join by gene (or uniprot_id) across all the small CSVs you exported.
+
+Compute the aggregate scores and write drug_target_annotations.csv.
+
+A tiny R scaffold to assemble it
+
+This assumes you exported small, flat files from each source (column names shown inline). Adjust to your filenames/columns.
+
+library(dplyr)
+library(readr)
+library(stringr)
+
+# --- helpers
+norm01 <- function(x) ifelse(all(is.na(x)) || length(unique(na.omit(x)))==1, 0.5,
+                             (rank(x, na.last="keep")-1)/(sum(!is.na(x))-1))
+
+# --- load source-specific extracts (you create these by export / API)
+ids        <- read_csv("id_map.csv")                 # gene, ensembl_id, uniprot_id
+uniprot    <- read_csv("uniprot_summary.csv")        # uniprot_id, target_class, subcellular_location
+reactome   <- read_csv("reactome_membership.csv")    # gene, reactome_paths
+string_ppi <- read_csv("string_shortest_path.csv")   # gene, egfr_distance
+pdb        <- read_csv("pdb_counts.csv")             # uniprot_id, pdb_structures_count, ligand_bound_structures_count
+chembl     <- read_csv("chembl_targets.csv")         # gene, chembl_active_compounds, chembl_high_quality_assays
+tract      <- read_csv("tractability.csv")           # gene, tractability_bucket
+probes     <- read_csv("chemical_probes.csv")        # gene, chemical_probe_quality, has_selective_small_molecule
+protac     <- read_csv("protac_db.csv")              # gene, protac_available
+antibodies <- read_csv("antibody_availability.csv")  # gene, antibody_available, assay_kits_available
+ctgov      <- read_csv("clinicaltrials_counts.csv")  # gene, num_active_clinical_programs, num_trials_any_phase
+patents    <- read_csv("patent_counts.csv")          # gene, patent_density_5y
+
+# --- assemble
+df <- ids %>%
+  left_join(uniprot,    by="uniprot_id") %>%
+  left_join(reactome,   by="gene") %>%
+  left_join(string_ppi, by="gene") %>%
+  left_join(pdb,        by="uniprot_id") %>%
+  left_join(chembl,     by="gene") %>%
+  left_join(tract,      by="gene") %>%
+  left_join(probes,     by="gene") %>%
+  left_join(protac,     by="gene") %>%
+  left_join(antibodies, by="gene") %>%
+  left_join(ctgov,      by="gene") %>%
+  left_join(patents,    by="gene")
+
+# --- scoring rules (customize thresholds/buckets)
+df <- df %>%
+  mutate(
+    # pathway relevance: crude example based on keywords
+    pathway_score = case_when(
+      str_detect(reactome_paths %||% "", "(EGFR|ERBB|MAPK|PI3K|AKT|mTOR|Apoptosis|DNA repair)") ~ 1.0,
+      str_detect(reactome_paths %||% "", "(RTK|RAS|RAF)") ~ 0.7,
+      TRUE ~ 0.3
+    ),
+    egfr_distance_score = case_when(
+      egfr_distance <= 1 ~ 1.0,
+      egfr_distance == 2 ~ 0.8,
+      egfr_distance == 3 ~ 0.6,
+      egfr_distance == 4 ~ 0.3,
+      is.na(egfr_distance) ~ 0.3,
+      TRUE ~ 0.0
+    ),
+    # druggability components
+    tract_score = case_when(
+      tractability_bucket %in% c("SM_tractable","Enzyme/Kinase") ~ 0.9,
+      tractability_bucket %in% c("Antibody_tractable","Secreted") ~ 0.7,
+      tractability_bucket %in% c("Low","Unknown") ~ 0.4,
+      TRUE ~ 0.5
+    ),
+    pdb_score      = norm01(pdb_structures_count),
+    ligand_pdb_score = norm01(ligand_bound_structures_count),
+    chembl_score   = norm01(chembl_active_compounds),
+    active_site_pocket_flag = ifelse(ligand_bound_structures_count > 0, 1, 0),
+    druggability_score = 0.35*tract_score + 0.25*pdb_score + 0.25*ligand_pdb_score +
+                         0.15*chembl_score + 0.05*active_site_pocket_flag,
+
+    # tooling
+    probe_map = case_when(
+      chemical_probe_quality == "High" ~ 1.0,
+      chemical_probe_quality == "Medium" ~ 0.6,
+      chemical_probe_quality == "Low" ~ 0.3,
+      TRUE ~ 0.0
+    ),
+    tool_compound_score = 0.45*probe_map +
+                          0.25*ifelse(has_selective_small_molecule==1,1,0) +
+                          0.15*ifelse(antibody_available==1,1,0) +
+                          0.10*ifelse(protac_available==1,1,0) +
+                          0.05*ifelse(assay_kits_available==1,1,0),
+
+    # competition intensity (higher = more crowded)
+    comp_trials = norm01(num_trials_any_phase),
+    comp_programs = norm01(num_active_clinical_programs),
+    comp_patents = norm01(patent_density_5y),
+    competition_intensity = 0.5*comp_programs + 0.35*comp_trials + 0.15*comp_patents
+  )
+
+# --- write the annotations file used by the main pipeline
+write_csv(df %>%
+  select(gene, ensembl_id, uniprot_id, target_class, subcellular_location,
+         reactome_paths, egfr_distance, egfr_distance_score,
+         tractability_bucket, pdb_structures_count, ligand_bound_structures_count,
+         chembl_active_compounds, chembl_high_quality_assays,
+         active_site_pocket_flag, druggability_score,
+         has_selective_small_molecule, chemical_probe_quality, antibody_available,
+         protac_available, assay_kits_available, tool_compound_score,
+         num_active_clinical_programs, num_trials_any_phase, patent_density_5y,
+         competition_intensity, pathway_score),
+  "drug_target_annotations.csv"
+)
