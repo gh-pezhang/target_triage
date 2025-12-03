@@ -51,7 +51,9 @@ suppressPackageStartupMessages({
 ###############################################
 # 2. Load Input Data
 ###############################################
+setwd("/mnt/target_triage/")
 
+indication <- c('LUAD', 'LUSC', 'LCC')
 # User provides these CSV/TXT files
 guardant_file      <- "pathway_genes_baseline_methyl_nofilt_NRvR_2025Q3.txt"      # potential targets
 depmap_crispr_file <- "/domino/datasets/local/cohort_comparisons/DepMap/25Q3/CRISPRGeneEffect.csv"      # DepMap CERES/Chronos
@@ -65,7 +67,7 @@ mouse_knockout     <- "mouse_KO_phenotypes.csv"
 normal_expression  <- "gtex_normal_expression.csv"
 
 # Load
-guardant   <- read_csv(guardant_file)
+guardant   <- read.table(guardant_file, sep="\t", header=T, quote="")
 depmap     <- read_csv(depmap_file)
 depmap_mut <- read_csv(depmap_mutants_file)
 tcga       <- read_csv(tcga_prevalence)
@@ -73,6 +75,9 @@ drugdb     <- read_csv(drug_target_file)
 assaydb    <- read_csv(assay_availability)
 mouseKO    <- read_csv(mouse_knockout)
 gtex       <- read_csv(normal_expression)
+
+#get target genes
+target_df <- guardant %>% mutate(gene=sub("_meth", "", feature))
 
 ###############################################
 # 2. Helper Normalization Functions
@@ -94,18 +99,15 @@ inv_norm01 <- function(x){
 # 3. Compute Subscores
 ###############################################
 
-df <- guardant %>%
-  rename(gene = Gene)
-
-# 3.1 CRWE subscore
-df <- df %>%
+# 3.1 RWE subscore
+target_df <- target_df %>%
   mutate(
-    s_CRWE = 0.5 * norm01(pct_nonresponders) +
-      0.3 * norm01(log2_vaf_ratio) +
-      0.2 * ifelse(methylation_significant == 1, 1, 0)
+    s_RWE = ifelse(fdr <= 0.05, 1, 0)
   )
 
-# 3.2 Functional genomics (DepMap)
+# 3.2 expression tumor vs normal
+
+# 3.3 Functional genomics (DepMap)
 depmap_EGFR <- depmap %>% 
   filter(cell_line %in% depmap_mut$cell_line)
 
