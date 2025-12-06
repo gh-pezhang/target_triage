@@ -381,8 +381,11 @@ v <- ggplot(volcano_dep,
   theme_bw() +
   labs(
     title = "EGFR-driver vs WT NSCLC: target gene dependency",
-    x = "median dependency (EGFR_driver − WT)/WT",
+    x = "median dependency (EGFR_driver − WT)/abs(WT)",
     y = "-log10 p-value"
   )
+
+ggsave(file.path(plots_dir, "volcano_plot_dependency_EGFR_driver_vs_WT.png"),
+       plot = v, width = 10, height = 5, dpi = 300)
 
 save.image(file="depmap.RData")
