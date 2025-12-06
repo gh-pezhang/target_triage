@@ -140,6 +140,7 @@ map_ensembl_to_hgnc <- function(count_matrix, mart = NULL) {
     annotation = annotation
   ))
 }
+###################################################
 
 ## 2) Load MC3 MAF and identify EGFR oncogenic/likely-oncogenic ################
 ## NOTE: MC3 MAF does NOT have tcga_project; we use barcodes only here
@@ -183,7 +184,7 @@ se_list <- list()
 
 for (prj in projects) {
   message("Querying RNA-seq for ", prj, " ...")
-  GDC_dir <- paste('/domino/datasets/local/cohort_comparisons/TCGA/', prj, sep="")
+  GDC_dir <- '/domino/datasets/local/cohort_comparisons/GDCdata'
   
   q <- GDCquery(
     project       = prj,
