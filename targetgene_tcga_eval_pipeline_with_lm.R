@@ -3,8 +3,9 @@
 ## to overcome osimertinib resistance in EGFR+ NSCLC, by following analyses
 ## 1. expression correlation with EGFR
 ## 2. expression correlation with bypass genes
-## 3. EGFR-driver-mutant vs WT tumor expression: log2FC + wilcoxon p-value
-## 4. build linear models between target expression ~ EGFR-mutant subtype
+## 3. differential expression between EGFR-driver-mutant and WT tumor: log2FC + wilcoxon p-value
+## 4. build linear models between target expression ~ EGFR status
+## 5. logistic regression models between target expression ~ EGFR status
 ## generate scatter plot, volcano plots and csv tables for the analysis
 ##
 ##
@@ -31,8 +32,10 @@ target_genes <- c(
   "IL16", "PTPN6", "IL1A", "PLAT", "LY96", "PTH1R", "ID3", "CD7", 
   "PTEN", "CD47", "GALM", "IL18R1", "RHOH", "CARTPT", "IL2RB", 
   "ADORA2B", "NT5E", "ICOSLG", "MET", "CDKN1C", "TNFRSF12A", 
-  "PFKP", "AXL", "HK2", "CELSR2", "DYRK3", "CYP39A1", "LTBR", "HDAC9"
+  "PFKP", "AXL", "HK2", "CELSR2", "DYRK3", "CYP39A1", "LTBR", "HDAC9",
+  "CLEC14A"
 )
+
 
 # Bypass pathway genes to check co-expression with
 bypass_genes <- c(
@@ -486,7 +489,46 @@ summary_df <- summary_df %>%
     glm_p_adj_BH    = p.adjust(glm_p_expr,               method = "BH")
   )
 
-write_csv(summary_df, file.path(output_dir, "target_gene_summary_with_LMs.csv"))
+scale_vec <- function(x) {
+  (x - mean(x, na.rm = TRUE)) / sd(x, na.rm = TRUE)
+}
+
+#convert metrics to standardized z-scores
+scale_vec <- function(x) {
+  (x - mean(x, na.rm = TRUE)) / sd(x, na.rm = TRUE)
+}
+
+summary_df_z <- summary_df %>%
+  mutate(
+    z_cor_EGFR          = scale_vec(pearson_with_EGFR),
+    z_cor_bypass        = scale_vec(mean_bypass_pearson),
+    z_log2FC            = scale_vec(log2FC_driver_vs_WT),
+    z_lm_beta           = scale_vec(lm_beta_driver),
+    z_glm_beta          = scale_vec(glm_beta_expr),
+    z_neglog_fdr_wilcox   = scale_vec(-log10(wilcox_p_adj_BH)),
+    z_neglog_fdr_lm       = scale_vec(-log10(lm_p_adj_BH)),
+    z_neglog_fdr_glm      = scale_vec(-log10(glm_p_adj_BH))
+  )
+
+# EGFR-Centric Score (best for primary EGFR-resistance)
+# Weights emphasize direct pathway linkage:
+# Component	-----------------------------    Rationale               	-----------      Weight
+# EGFR co-expression	                      Does gene track with EGFR activity?	        0.35
+# Differential expression in   	            Is it elevated in true driver tumors?	      0.25
+#   EGFR-driver tumors
+# LM coefficient (EGFR_status → expression) Directionality + strength	                  0.20
+# 
+# GLM β or OR	                              Predictive of EGFR-driver	                  0.10
+# Bypass co-expression	                    Might reflect escape pathway	              0.10
+summary_df_z <- summary_df_z %>%
+  mutate(EGFR_centric_score = 0.35 * summary_df_z$z_cor_EGFR +
+                              0.25 * summary_df_z$z_log2FC +
+                              0.20 * summary_df_z$z_lm_beta +
+                              0.10 * summary_df_z$z_glm_beta +
+                              0.10 * summary_df_z$z_cor_bypass
+  )
+
+write_csv(summary_df_z, file.path(output_dir, "target_gene_summary_with_LMs.csv"))
 
 ## 11) Global correlation heatmap (EGFR + targets + bypass) ####################
 
@@ -575,5 +617,5 @@ ggsave(
 )
 
 message("Done. Results written to: ", normalizePath(output_dir))
-save.image(file = ".RData")
+save.image(file = "tcga.RData")
 savehistory(file = ".Rhistory")

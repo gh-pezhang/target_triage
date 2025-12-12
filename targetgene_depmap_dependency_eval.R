@@ -22,7 +22,7 @@ target_genes <- c(
   "IL16", "PTPN6", "IL1A", "PLAT", "LY96", "PTH1R", "ID3", "CD7", 
   "PTEN", "CD47", "GALM", "IL18R1", "RHOH", "CARTPT", "IL2RB", 
   "ADORA2B", "NT5E", "ICOSLG", "MET", "CDKN1C", "TNFRSF12A", 
-  "PFKP", "AXL", "HK2", "CELSR2", "DYRK3", "CYP39A1", "LTBR", "HDAC9"
+  "PFKP", "AXL", "HK2", "CELSR2", "DYRK3", "CYP39A1", "LTBR", "HDAC9", "CLEC14A"
 )
 
 # 1. Load packages and DepMap tables
