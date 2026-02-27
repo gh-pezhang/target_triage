@@ -1,6 +1,6 @@
 !. How to run
 
-Rscript run_agent.R --app application.yaml --scoring scoring.yaml --targets targets.csv --out output
+Rscript run_scoring_agent.R --app application.yaml --scoring scoring.yaml --targets targets.csv --out output
 
 Outputs:
 

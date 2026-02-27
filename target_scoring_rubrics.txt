@@ -1,0 +1,82 @@
+I. Define 0–5 rubrics that map to observable evidence
+You’ll move fastest if each category has 3–6 measurable features with a simple mapping to 0–5.
+A) Biological rationale (0–5)
+Signals: pathway placement in relevant biology, interaction neighborhood, consistency with application mechanism (e.g., resistance, metastasis, immune evasion).
+Rubric idea:
+0: no known role in disease-relevant processes
+3: pathway-linked + some context evidence
+5: strong mechanistic fit + multiple independent sources + clear testable hypothesis
+
+B) Genetic evidence (0–5)
+Signals: alteration prevalence in relevant cohort, enrichment vs controls, TCGA associations, clonal evidence, germline/driver status, functional variant annotations.
+0: no recurrent alterations / no association
+3: recurrent in subtype or associated with outcomes
+5: clear driver/causal genetics + replicated cohorts
+
+C) Therapeutic evidence (0–5)
+Signals: existing drugs, clinical signal, response biomarkers, trial phases, prior failures in same context.
+0: no therapeutic hypothesis or negative precedent dominates
+3: preclinical + early clinical activity
+5: strong clinical validation in same indication/setting (or compelling adjacent)
+
+D) Druggability (0–5)
+Signals: target class (enzyme/GPCR vs scaffold), binding pockets, modality options, historical success rates, structural info.
+0: undruggable with current modalities
+3: feasible but hard (e.g., PPIs without clear pocket)
+5: proven drug class + multiple hits/chemotypes
+
+E) Tooling (0–5)
+Signals: assays (biochemical/cell), CRISPR tools, biomarkers measurable in liquid biopsy, animal models, reagents.
+0: minimal tools to validate
+3: workable in vitro + some in vivo
+5: robust tools + clear translational biomarker assays
+
+F) Translational feasibility (0–5)
+Signals: patient selection strategy, biomarker detectability, prevalence, trial endpoints, combination rationale.
+0: cannot define who to treat / cannot measure effect
+3: feasible enrichment + plausible endpoints
+5: clean biomarker + large enough population + practical trial path
+
+G) Toxicity risk (0–5) (invert: higher score = safer)
+Signals: normal tissue essentiality/expression, known class toxicities, knockout phenotypes, on-target/off-tumor concerns.
+0: high likelihood of severe on-target toxicity
+3: manageable risk with monitoring/route/modality
+5: low predicted toxicity / validated safety window
+
+H) Competitive landscape (0–5)
+Signals: number of active programs/trials, crowding in same indication, differentiation angles.
+0: extremely crowded, hard to differentiate
+3: moderate competition, some whitespace
+5: clear whitespace or strong differentiator (biomarker/context/modality)
+
+I) Commercial viability (0–5)
+Signals: market size in the specific setting, pricing/reimbursement plausibility, line-of-therapy dynamics, adoption friction, diagnostics cost.
+0: tiny niche + high adoption friction
+3: meaningful segment, workable economics
+5: large segment + clear value story + scalable Dx
+
+II. Implement scoring fast: a “feature → score” table
+Create a config-driven scoring file (YAML/JSON) per category:
+feature definitions (SQL/KG queries)
+thresholds
+weights inside category
+mapping to 0–5
+
+Example pattern:
+Genetic evidence score = f(prevalence, enrichment, TCGA driver evidence, functional annotation)
+Each feature yields 0–1, sum → 0–5 via bins.
+This lets you iterate without rewriting code.
+
+III.  Weighted total score (and how to keep it honest)
+Let the user set weights per application (e.g., toxicity higher for adjuvant, commercial higher for crowded markets).
+Compute:
+Total = Σ(wᵢ × scoreᵢ) where scores are 0–5
+Also show confidence / evidence quality (separate from score): Low/Med/High based on source count + recency + agreement
+Critical: don’t hide uncertainty—add an “Evidence Quality” badge so a target with a 4.2 but low evidence quality is obvious.
+
+IV. Trust guardrails that cost little but pay off huge
+Hard requirement: any category score above 3 must have ≥2 independent evidence sources (or 1 strong structured source + 1 independent).
+Contradiction check: if the retriever finds strong negative clinical results, cap Therapeutic evidence ≤2 unless user overrides.
+Context check: evidence must match tumor type/setting; otherwise it’s labeled “adjacent” and downweighted.
+No free-text scoring: LLM can only (a) extract facts into the evidence JSON, (b) write explanations.
+
