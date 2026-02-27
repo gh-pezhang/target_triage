@@ -1,0 +1,92 @@
+weights:
+  biological_rationale: 0.15
+  genetic_evidence: 0.10
+  therapeutic_evidence: 0.15
+  druggability: 0.10
+  tooling: 0.10
+  translational_feasibility: 0.15
+  toxicity_risk: 0.10
+  competitive_landscape: 0.05
+  commercial_viability: 0.10
+
+biological_rationale:
+  bins:
+    n_pathways:
+      - {min: 0, score: 0}
+      - {min: 1, score: 2}
+      - {min: 3, score: 3}
+      - {min: 6, score: 4}
+      - {min: 10, score: 5}
+    n_papers_5y:
+      - {min: 0, score: 0}
+      - {min: 5, score: 2}
+      - {min: 20, score: 3}
+      - {min: 60, score: 4}
+      - {min: 120, score: 5}
+
+genetic_evidence:
+  default_score: 0  # MVP placeholder; wire TCGA/DepMap/RWD later
+
+therapeutic_evidence:
+  bins:
+    n_trials:
+      - {min: 0, score: 0}
+      - {min: 1, score: 2}
+      - {min: 3, score: 3}
+      - {min: 8, score: 4}
+      - {min: 15, score: 5}
+    n_trials_active:
+      - {min: 0, score: 0}
+      - {min: 1, score: 3}
+      - {min: 3, score: 4}
+      - {min: 6, score: 5}
+
+druggability:
+  bins:
+    chembl_targets_found:
+      - {min: 0, score: 0}
+      - {min: 1, score: 3}
+      - {min: 3, score: 4}
+      - {min: 6, score: 5}
+
+tooling:
+  bins:
+    n_papers:
+      - {min: 0, score: 0}
+      - {min: 20, score: 2}
+      - {min: 80, score: 3}
+      - {min: 200, score: 4}
+      - {min: 500, score: 5}
+    chembl_targets_found:
+      - {min: 0, score: 0}
+      - {min: 1, score: 3}
+      - {min: 3, score: 4}
+      - {min: 6, score: 5}
+
+translational_feasibility:
+  bins:
+    n_trials_active:
+      - {min: 0, score: 1}
+      - {min: 1, score: 3}
+      - {min: 3, score: 4}
+      - {min: 6, score: 5}
+    n_pathways:
+      - {min: 0, score: 1}
+      - {min: 1, score: 2}
+      - {min: 3, score: 3}
+      - {min: 6, score: 4}
+      - {min: 10, score: 5}
+
+toxicity_risk:
+  default_score: 3  # MVP placeholder; refine with essentiality/GTEx/KO
+
+competitive_landscape:
+  # "More trials" => more crowded => lower score
+  bins:
+    n_trials_crowding:
+      - {min: 0, score: 5}
+      - {min: 3, score: 4}
+      - {min: 8, score: 3}
+      - {min: 15, score: 2}
+      - {min: 30, score: 1}
+      - {min: 50, score: 0}

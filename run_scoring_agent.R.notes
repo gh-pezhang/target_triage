@@ -1,0 +1,33 @@
+!. How to run
+
+Rscript run_agent.R --app application.yaml --scoring scoring.yaml --targets targets.csv --out output
+
+Outputs:
+
+output/ranked_targets.csv
+
+output/ranked_targets.json
+
+output/bundles/*.json (one per target, full audit trail)
+
+2. What to add immediately after MVP (to make it much better without changing the design)
+
+   2.1 Add TCGA genetic evidence (1–2 days)
+       Use TCGAbiolinks to pull mutation/CNA prevalence in LUAD/LUSC and compute:
+	prevalence
+	enrichment in EGFR-mut subgroup (where possible)
+	Wire those metrics into bundle$metrics → update genetic_evidence bins.
+
+   2.2 Add DepMap essentiality + context dependency (2–3 days)
+       Pull dependency scores for LUAD lines with EGFR features.
+       Use it to improve:
+	genetic evidence (functional essentiality)
+	toxicity risk (essentiality across many lineages)
+
+   2.3 Add “context match” logic (1 day)
+       Right now, trials/papers are “target + disease + context terms”. You can improve trust by:
+	parsing for co-mentions (osimertinib AND “primary resistance”)
+	downweighting “adjacent” evidence (e.g., 2L or non-EGFR NSCLC)
+
+3. Important note about “trustworthy” scoring in MVP
+   Some categories (especially toxicity risk and genetic evidence) are placeholders unless you integrate essentiality/normal tissue expression/KO phenotype and cohort/TCGA data. The MVP structure is designed so you can plug those in without changing the workflow.

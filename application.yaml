@@ -1,0 +1,16 @@
+name: "NSCLC EGFR-mut: overcome primary resistance to 1L osimertinib"
+disease_terms:
+  - "NSCLC"
+  - "\"non-small cell lung\""
+  - "\"EGFR\""
+therapy_terms:
+  - "osimertinib"
+  - "Tagrisso"
+context_terms:
+  - "\"primary resistance\""
+  - "\"intrinsic resistance\""
+  - "\"de novo resistance\""
+  - "frontline"
+limits:
+  trials_max: 50
+  papers_max: 25
