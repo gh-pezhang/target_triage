@@ -67,85 +67,107 @@ load_yaml <- function(path) {
 # Target resolution (MyGene.info)
 # -------------------------
 
-resolve_targets_mygene <- function(target_symbols) {
+resolve_targets_mygene <- function(target_symbols,
+                                   override_path = "target_alias_overrides.csv",
+                                   n_hits = 50) {
   base <- "https://mygene.info/v3/query"
   
-  map_dfr(target_symbols, function(sym) {
-    q <- URLencode(sym, reserved = TRUE)
-    req <- request(base) |>
-      req_url_query(
-        q = q,
+  # optional overrides: columns input,canonical_symbol
+  overrides <- tibble::tibble(input = character(), canonical_symbol = character())
+  if (!is.null(override_path) && file.exists(override_path)) {
+    overrides <- readr::read_csv(override_path, show_col_types = FALSE) |>
+      dplyr::mutate(
+        input = toupper(trimws(input)),
+        canonical_symbol = toupper(trimws(canonical_symbol))
+      ) |>
+      dplyr::distinct(input, .keep_all = TRUE)
+  }
+  
+  # helper to compute a deterministic "match score" for each hit
+  score_hit <- function(input_u, hit) {
+    sym <- toupper(hit$symbol %||% "")
+    # alias may be absent, scalar, or vector
+    alias_vec <- character(0)
+    if (!is.null(hit$alias)) {
+      alias_vec <- toupper(as.character(unlist(hit$alias)))
+    }
+    
+    # ranking rules (bigger is better)
+    if (sym == input_u) return(100L)                 # exact symbol match
+    if (input_u %in% alias_vec) return(90L)          # exact alias match
+    if (startsWith(sym, input_u)) return(40L)        # weak fallback
+    if (any(startsWith(alias_vec, input_u))) return(30L)
+    return(0L)
+  }
+  
+  resolve_one <- function(sym_in) {
+    input_u <- toupper(trimws(sym_in))
+    
+    # apply override if present
+    q_term <- input_u
+    if (nrow(overrides) > 0 && input_u %in% overrides$input) {
+      q_term <- overrides$canonical_symbol[match(input_u, overrides$input)]
+    }
+    
+    req <- httr2::request(base) |>
+      httr2::req_url_query(
+        q = q_term,
         species = "human",
         fields = "symbol,entrezgene,ensembl.gene,name,alias",
-        size = 1
+        size = n_hits
       )
     
     resp <- safe_req(req)
     if (is.null(resp)) {
-      return(tibble(input = sym, symbol = NA_character_, entrez = NA_character_,
-                    ensembl = NA_character_, name = NA_character_, aliases = NA_character_))
+      return(tibble::tibble(
+        input = sym_in, symbol = NA_character_, entrez = NA_character_,
+        ensembl = NA_character_, name = NA_character_, aliases = NA_character_
+      ))
     }
     
-    body <- resp |> resp_body_json(simplifyVector = TRUE)
-    hits <- body$hits %||% NULL
+    # parse without simplifyVector to avoid atomic-vector/data.frame pitfalls
+    body <- jsonlite::fromJSON(httr2::resp_body_string(resp), simplifyVector = FALSE)
+    hits <- body$hits %||% list()
     
-    if (is.null(hits) || length(hits) == 0) {
-      return(tibble(input = sym, symbol = NA_character_, entrez = NA_character_,
-                    ensembl = NA_character_, name = NA_character_, aliases = NA_character_))
+    if (length(hits) == 0) {
+      return(tibble::tibble(
+        input = sym_in, symbol = NA_character_, entrez = NA_character_,
+        ensembl = NA_character_, name = NA_character_, aliases = NA_character_
+      ))
     }
     
-    # ---- Robust "first hit" extraction ----
-    hit <- NULL
+    # score all candidates against ORIGINAL input (not overridden q_term)
+    scores <- vapply(hits, function(h) score_hit(input_u, h), integer(1))
+    best_i <- which.max(scores)
+    best <- hits[[best_i]]
     
-    if (is.data.frame(hits)) {
-      # hits is a data.frame: take first row as a list
-      hit <- as.list(hits[1, , drop = FALSE])
-    } else if (is.list(hits)) {
-      # hits is list-of-lists: take first element
-      hit <- hits[[1]]
-      # sometimes simplifyVector makes it not a list-of-lists; ensure list
-      if (!is.list(hit)) hit <- as.list(hit)
-    } else {
-      # unexpected type
-      hit <- list()
-    }
-    
-    # ---- Parse ensembl gene robustly ----
+    # extract ensembl gene robustly
     ensg <- NA_character_
-    if (!is.null(hit$`ensembl.gene`)) {
-      # could be scalar string or vector
-      ensg <- as.character(hit$`ensembl.gene`)[1]
-    } else if (!is.null(hit$ensembl)) {
-      # could be nested list/data.frame
-      ens <- hit$ensembl
-      if (is.list(ens) && !is.null(ens$gene)) ensg <- as.character(ens$gene)[1]
-      if (is.data.frame(ens) && "gene" %in% names(ens)) ensg <- as.character(ens$gene[1])
-      if (is.list(ens) && length(ens) > 0 && is.list(ens[[1]]) && !is.null(ens[[1]]$gene)) {
-        ensg <- as.character(ens[[1]]$gene)[1]
-      }
+    if (!is.null(best$`ensembl.gene`)) {
+      ensg <- as.character(unlist(best$`ensembl.gene`))[1]
+    } else if (!is.null(best$ensembl) && !is.null(best$ensembl$gene)) {
+      ensg <- as.character(unlist(best$ensembl$gene))[1]
     }
     
-    # ---- Aliases ----
     aliases <- NA_character_
-    if (!is.null(hit$alias)) {
-      if (is.list(hit$alias)) {
-        aliases <- paste0(unlist(hit$alias), collapse = "|")
-      } else {
-        aliases <- paste0(as.character(hit$alias), collapse = "|")
-      }
-      if (identical(aliases, "")) aliases <- NA_character_
+    if (!is.null(best$alias)) {
+      aliases <- paste0(as.character(unlist(best$alias)), collapse = "|")
+      if (aliases == "") aliases <- NA_character_
     }
     
-    tibble(
-      input = sym,
-      symbol = as.character(hit$symbol %||% NA_character_),
-      entrez = as.character(hit$entrezgene %||% NA_character_),
+    tibble::tibble(
+      input = sym_in,
+      symbol = as.character(best$symbol %||% NA_character_),
+      entrez = as.character(best$entrezgene %||% NA_character_),
       ensembl = as.character(ensg),
-      name = as.character(hit$name %||% NA_character_),
+      name = as.character(best$name %||% NA_character_),
       aliases = aliases
     )
-  })
+  }
+  
+  purrr::map_dfr(target_symbols, resolve_one)
 }
+
 `%||%` <- function(a, b) if (!is.null(a)) a else b
 
 # -------------------------
@@ -287,49 +309,64 @@ get_trials <- function(query, max_records = 50) {
   }) |> distinct(nct_id, .keep_all = TRUE)
 }
 
-# 3) Europe PMC literature
-get_epmc <- function(query, page_size = 25) {
-  base <- "https://www.ebi.ac.uk/europepmc/webservices/rest/search"
+# 3) pubmed literature
+get_pubmed <- function(query, retmax = 25, api_key = NULL) {
+  base_search <- "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
+  base_summary <- "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi"
   
-  req <- request(base) |>
-    req_url_query(
-      query = query,
-      format = "json",
-      pageSize = page_size,
-      resultType = "core"
+  # 1️⃣ Search PubMed
+  req_search <- httr2::request(base_search) |>
+    httr2::req_url_query(
+      db = "pubmed",
+      term = query,
+      retmode = "json",
+      retmax = retmax,
+      api_key = api_key
     )
   
-  resp <- safe_req(req)
-  if (is.null(resp)) return(tibble())
+  resp_search <- safe_req(req_search)
+  if (is.null(resp_search)) return(tibble())
   
-  body <- resp |> resp_body_json(simplifyVector = TRUE)
+  search_body <- jsonlite::fromJSON(httr2::resp_body_string(resp_search), simplifyVector = TRUE)
   
-  res <- body$resultList$result %||% NULL
-  if (is.null(res) || length(res) == 0) return(tibble())
+  ids <- search_body$esearchresult$idlist
+  if (is.null(ids) || length(ids) == 0) return(tibble())
   
-  # If simplified to data.frame, just rename/select directly
-  if (is.data.frame(res)) {
-    out <- tibble(
-      title = res$title %||% NA_character_,
-      journal = res$journalTitle %||% NA_character_,
-      pub_year = suppressWarnings(as.integer(res$pubYear %||% NA)),
-      cited_by = suppressWarnings(as.integer(res$citedByCount %||% NA)),
-      doi = res$doi %||% NA_character_,
-      pmid = res$pmid %||% NA_character_
+  # 2️⃣ Get metadata
+  req_summary <- httr2::request(base_summary) |>
+    httr2::req_url_query(
+      db = "pubmed",
+      id = paste(ids, collapse = ","),
+      retmode = "json",
+      api_key = api_key
     )
-    return(out)
-  }
   
-  # Otherwise treat as list-of-lists
-  map_dfr(res, function(r) {
-    if (!is.list(r)) r <- as.list(r)
+  resp_summary <- safe_req(req_summary)
+  if (is.null(resp_summary)) return(tibble())
+  
+  summary_body <- jsonlite::fromJSON(httr2::resp_body_string(resp_summary), simplifyVector = FALSE)
+  
+  results <- summary_body$result
+  uids <- results$uids
+  
+  if (is.null(uids) || length(uids) == 0) return(tibble())
+  
+  purrr::map_dfr(uids, function(uid) {
+    r <- results[[uid]]
+    
+    pub_year <- NA_integer_
+    if (!is.null(r$pubdate)) {
+      pub_year <- suppressWarnings(as.integer(substr(r$pubdate, 1, 4)))
+    }
+    
     tibble(
       title = r$title %||% NA_character_,
-      journal = r$journalTitle %||% NA_character_,
-      pub_year = suppressWarnings(as.integer(r$pubYear %||% NA)),
-      cited_by = suppressWarnings(as.integer(r$citedByCount %||% NA)),
-      doi = r$doi %||% NA_character_,
-      pmid = r$pmid %||% NA_character_
+      journal = r$fulljournalname %||% NA_character_,
+      pub_year = pub_year,
+      cited_by = NA_integer_,  # PubMed does not directly provide citation count
+      pmid = uid,
+      doi = if (!is.null(r$elocationid) && grepl("doi", r$elocationid, ignore.case = TRUE))
+        r$elocationid else NA_character_
     )
   })
 }
@@ -377,9 +414,12 @@ build_evidence_bundle <- function(app, target_row) {
   trial_query <- glue('({sym}) AND ({disease_terms}) AND ({therapy_terms})')
   trials <- get_trials(trial_query, max_records = app$limits$trials_max)
   
-  # Literature: target + context (Europe PMC syntax)
+  # Literature: target + context
   paper_query <- glue('{sym} AND ({disease_terms}) AND ({context_terms})')
-  papers <- get_epmc(paper_query, page_size = app$limits$papers_max)
+  papers <- get_pubmed(
+    query = paper_query,
+    retmax = app$limits$papers_max
+  )
   
   # Pathways
   reactome <- get_reactome_pathways(sym)
